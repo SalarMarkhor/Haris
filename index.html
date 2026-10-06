@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ping Pong</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0f1a; color: #e8ecf5; font-family: system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+  canvas { background: #111827; border: 2px solid #334155; border-radius: 8px; max-width: 96vw; touch-action: none; }
+  .hint { font-size: 14px; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+<canvas id="game" width="800" height="500"></canvas>
+<div class="hint">Move: W/S or Arrow Up/Down, or mouse/touch. Space: start/pause. First to 7 wins.</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const WIN = 7;
+
+const player = { x: 20, y: H / 2 - 40, w: 12, h: 80, speed: 6, score: 0 };
+const cpu = { x: W - 32, y: H / 2 - 40, w: 12, h: 80, speed: 4.2, score: 0 };
+const ball = { x: W / 2, y: H / 2, r: 8, vx: 0, vy: 0 };
+
+let state = 'ready'; // ready, playing, paused, over
+let message = 'Press Space to start';
+const keys = {};
+
+function resetBall(dir) {
+  ball.x = W / 2; ball.y = H / 2;
+  const angle = (Math.random() * 0.8 - 0.4);
+  const speed = 5;
+  ball.vx = Math.cos(angle) * speed * dir;
+  ball.vy = Math.sin(angle) * speed;
+}
+
+function startGame() {
+  player.score = cpu.score = 0;
+  resetBall(Math.random() < 0.5 ? 1 : -1);
+  state = 'playing';
+}
+
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+function hitPaddle(p, dir) {
+  if (ball.x + ball.r > p.x && ball.x - ball.r < p.x + p.w &&
+      ball.y + ball.r > p.y && ball.y - ball.r < p.y + p.h) {
+    const rel = (ball.y - (p.y + p.h / 2)) / (p.h / 2);
+    const speed = Math.min(Math.hypot(ball.vx, ball.vy) * 1.06, 13);
+    const angle = rel * 0.9;
+    ball.vx = Math.cos(angle) * speed * dir;
+    ball.vy = Math.sin(angle) * speed;
+    ball.x = dir > 0 ? p.x + p.w + ball.r : p.x - ball.r;
+  }
+}
+
+function update() {
+  if (state !== 'playing') return;
+
+  if (keys['w'] || keys['arrowup']) player.y -= player.speed;
+  if (keys['s'] || keys['arrowdown']) player.y += player.speed;
+  player.y = clamp(player.y, 0, H - player.h);
+
+  // CPU follows the ball with limited speed
+  const target = ball.y - cpu.h / 2;
+  const diff = target - cpu.y;
+  cpu.y += clamp(diff, -cpu.speed, cpu.speed) * (ball.vx > 0 ? 1 : 0.4);
+  cpu.y = clamp(cpu.y, 0, H - cpu.h);
+
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy *= -1; }
+  if (ball.y + ball.r > H) { ball.y = H - ball.r; ball.vy *= -1; }
+
+  hitPaddle(player, 1);
+  hitPaddle(cpu, -1);
+
+  if (ball.x < 0) { cpu.score++; point(1); }
+  else if (ball.x > W) { player.score++; point(-1); }
+}
+
+function point(dir) {
+  if (player.score >= WIN || cpu.score >= WIN) {
+    state = 'over';
+    message = (player.score >= WIN ? 'You win!' : 'CPU wins!') + ' Press Space to play again';
+  } else {
+    resetBall(dir);
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = '#334155';
+  ctx.setLineDash([10, 12]);
+  ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = '#e8ecf5';
+  ctx.font = 'bold 48px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(player.score, W / 2 - 60, 60);
+  ctx.fillText(cpu.score, W / 2 + 60, 60);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+  ctx.fillStyle = '#f472b6';
+  ctx.fillRect(cpu.x, cpu.y, cpu.w, cpu.h);
+
+  if (state !== 'ready' && state !== 'over') {
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  if (state !== 'playing') {
+    ctx.fillStyle = 'rgba(11,15,26,0.7)';
+    ctx.fillRect(0, H / 2 - 40, W, 80);
+    ctx.fillStyle = '#e8ecf5';
+    ctx.font = '24px system-ui';
+    ctx.fillText(state === 'paused' ? 'Paused. Press Space to resume' : message, W / 2, H / 2 + 8);
+  }
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+
+function toggle() {
+  if (state === 'ready' || state === 'over') startGame();
+  else if (state === 'playing') state = 'paused';
+  else if (state === 'paused') state = 'playing';
+}
+
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); toggle(); return; }
+  keys[k] = true;
+  if (k.startsWith('arrow')) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+function pointerMove(clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const y = (clientY - rect.top) * (H / rect.height);
+  player.y = clamp(y - player.h / 2, 0, H - player.h);
+}
+canvas.addEventListener('mousemove', e => pointerMove(e.clientY));
+canvas.addEventListener('touchmove', e => { pointerMove(e.touches[0].clientY); }, { passive: true });
+canvas.addEventListener('touchstart', e => { if (state !== 'playing') toggle(); pointerMove(e.touches[0].clientY); }, { passive: true });
+
+loop();
+</script>
+</body>
+</html>
